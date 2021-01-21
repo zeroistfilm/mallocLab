@@ -42,7 +42,6 @@ team_t team = {
 #define SIZEMASK (~0x7)
 #define PACK(size, alloc) ((size)|(alloc))
 #define getSize(x) ((x)->size & SIZEMASK) // x의 사이즈를 구한다.
-
 #define WSIZE 4 //word의 크기
 #define DSIZE 8 // double word의 크기를 정하고 있다
 #define CHUNKSIZE (1<<12) // 초기 힙 사이즈를 설정한다.
@@ -65,13 +64,13 @@ team_t team = {
 /*  mi
  * mm_init - initialize the malloc package.
  */
-void *mm_malloc(size_t size);
-static void *coalesce(void *bp);
-void mm_free(void *ptr);
-static void *extend_heap(size_t words);
-static void *find_fit(size_t asize);
-static void place(void *bp, size_t asize);
 int mm_init(void);
+void *mm_malloc(size_t size);
+static void *find_fit(size_t asize);
+static void *extend_heap(size_t words);
+static void place(void *bp, size_t asize);
+void mm_free(void *bp);
+static void *coalesce(void *bp);
 
 static char *heap_listp;
 static char *lastbp;
@@ -108,6 +107,7 @@ void *mm_malloc(size_t size) {
 // 최소 16바이트 크기의 블록 구성
 // 8바이트는 정렬 조건을 만족시키기 위해
 // 추가적인 8바이트는 헤더아 풋터 오버헤드를 위해
+//    asize = MAX(ALIGN(size) + DSIZE, MINIMUM);ZE);
     if (size <= DSIZE)
         asize = 2 * DSIZE;
     else // 8바이트를 넘는 요청은 오버헤드 바이트 내에 더해주고 인접 8의 배수로 반올림.
@@ -124,6 +124,60 @@ void *mm_malloc(size_t size) {
 
     place(bp, asize);
     return bp;
+}
+
+static void *find_fit(size_t asize) {
+    void *bp;
+    for (bp = lastbp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
+        if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) {
+            return bp;
+        }
+    }
+    for (bp = heap_listp; bp!=lastbp; bp = NEXT_BLKP(bp)) {
+        if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) {
+            return bp;
+        }
+    }
+    return NULL;
+}
+
+static void *extend_heap(size_t words) {
+    void *bp;
+    size_t size;
+
+    //요청한 크기를 인접 2워드의 배수로 반올림 하며, 그 후에 메모리 시스템으로 부터 추가적인 힙 공간 요청
+    size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE;
+    if ((bp = mem_sbrk(size)) == -1)
+        return NULL;
+
+    PUT(HDRP(bp), PACK(size, 0)); //프리블록 해더
+    PUT(FTRP(bp), PACK(size, 0)); //프리블록 풋터
+    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); //뉴에필로그 헤더
+    return coalesce(bp);
+}
+static void place(void *bp, size_t asize) {
+    size_t csize = GET_SIZE(HDRP(bp));
+    if ((csize - asize) >= (2 * DSIZE)) {
+        PUT(HDRP(bp), PACK(asize, 1));
+        PUT(FTRP(bp), PACK(asize, 1));
+        bp = NEXT_BLKP(bp); //다음 블록으로 이동
+        PUT(HDRP(bp), PACK(csize - asize, 0));
+        PUT(FTRP(bp), PACK(csize - asize, 0));
+    } else {
+        PUT(HDRP(bp), PACK(csize, 1));
+        PUT(FTRP(bp), PACK(csize, 1));
+    }
+}
+/*
+ * mm_free - Freeing a block does nothing.
+ */
+
+void mm_free(void *bp) {
+    if (!bp) return;
+    size_t size = GET_SIZE(HDRP(bp));
+    PUT(HDRP(bp), PACK(size, 0));
+    PUT(FTRP(bp), PACK(size, 0));
+    coalesce(bp);
 }
 
 static void *coalesce(void *bp) {
@@ -163,56 +217,6 @@ static void *coalesce(void *bp) {
 
 }
 
-/*
- * mm_free - Freeing a block does nothing.
- */
-
-void mm_free(void *bp) {
-    if (!bp) return;
-    size_t size = GET_SIZE(HDRP(bp));
-    PUT(HDRP(bp), PACK(size, 0));
-    PUT(FTRP(bp), PACK(size, 0));
-    coalesce(bp);
-}
-
-static void *extend_heap(size_t words) {
-    char *bp;
-    size_t size;
-
-    //요청한 크기를 인접 2워드의 배수로 반올림 하며, 그 후에 메모리 시스템으로 부터 추가적인 힙 공간 요청
-    size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE;
-    if ((long) (bp = mem_sbrk(size)) == -1)
-        return NULL;
-
-    PUT(HDRP(bp), PACK(size, 0)); //프리블록 해더
-    PUT(FTRP(bp), PACK(size, 0)); //프리블록 풋터
-    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); //뉴에필로그 헤더
-    return coalesce(bp);
-}
-
-static void place(void *bp, size_t asize) {
-    size_t csize = GET_SIZE(HDRP(bp));
-    if ((csize - asize) >= (2 * DSIZE)) {
-        PUT(HDRP(bp), PACK(asize, 1));
-        PUT(FTRP(bp), PACK(asize, 1));
-        bp = NEXT_BLKP(bp); //다음 블록으로 이동
-        PUT(HDRP(bp), PACK(csize - asize, 0));
-        PUT(FTRP(bp), PACK(csize - asize, 0));
-    } else {
-        PUT(HDRP(bp), PACK(csize, 1));
-        PUT(FTRP(bp), PACK(csize, 1));
-    }
-}
-
-static void *find_fit(size_t asize) {
-    void *bp;
-    for (bp = lastbp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
-        if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) {
-            return bp;
-        }
-    }
-    return NULL;
-}
 
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
