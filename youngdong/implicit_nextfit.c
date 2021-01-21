@@ -75,6 +75,15 @@ static void *coalesce(void *bp);
 static char *heap_listp;
 static char *lastbp;
 
+/*
+ * comment
+ * 저가 작성한 코드와 논리적으로 굉장히 유사한데 저는 83점이 나오고 이 코드는 84점이 나옵니다.
+ * 어디서 점수 차이가 나는지 찾아보고 있는데, 잘 모르겠습니다.
+ * 이 코드에서는 coalesce에서 lastbp를 갱신시키지 않아도 작동이 되는데, 저는 갱신하지 않으면 터집니다.
+ * 아마 그곳에서 차이가 나는 것으로 생각이 됩니다.
+ * 알아보기 쉽게 주석을 작성해주셔서 코드를 읽는데 불편함이 없었습니다.
+ * implicit_list 방식을 탄탄하게 구현한 것 같습니다. 코드를 저장해서 저의 코드와 비교해서 분석해봐야 될 것 같습니다.
+ */
 int mm_init(void) {
     if ((heap_listp = mem_sbrk(4 * WSIZE)) == (void *) -1){
         return -1;
@@ -125,7 +134,13 @@ void *mm_malloc(size_t size) {
     place(bp, asize);
     return bp;
 }
-
+/*
+comment
+next-fit으로 블록들을 탐색하는 경우, 에필로그 블록을 만나 힙의 마지막에 도달할 경우
+탐색하지 못한 앞의 영역을 탐색하기 위한 추가적인 조치가 필요한데 mm_init에서 초기화 한
+heap_listp를 적절하게 이용해서 next-fit을 구현한 것 같습니다.
+또 coalesce가 발생하는 지점으로 lastbp를 이동시켜 속도의 향상을 얻은 점이 좋은 것 같습니다.
+*/
 static void *find_fit(size_t asize) {
     void *bp;
     for (bp = lastbp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
@@ -170,7 +185,10 @@ static void place(void *bp, size_t asize) {
 }
 /*
  * mm_free - Freeing a block does nothing.
+ * comment
+ * mm-free를 실행할 때, bp가 유효한 주소인지 확인해서 불필요한 작업을 차단한 것이 좋은 것 같습니다.
  */
+
 
 void mm_free(void *bp) {
     if (!bp) return;
